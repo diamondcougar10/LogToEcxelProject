@@ -1,0 +1,11 @@
+[Msg] $$PM__ { "MachineName": "MACHINE1", "MsgTime": "2025-08-20T17:59:55Z", "type": 0, "Progress": 10.0, "Context": "MARKER_PROJECT_FINALIZE" } __$$
+SLDEFAULT=> ExportType : 3mx
+SLDEFAULT=> Resolution : HIGH
+SLDEFAULT=> TileScheme : QTM
+SLDEFAULT=> PhotosUsed : 1200
+SLDEFAULT=> FusersUsed : 4
+SLDEFAULT=> OutputFolder : C:\\Exports
+SLDEFAULT=> TotalFiles : 20
+SLDEFAULT=> TotalSize : 2048 MB
+Finished with exit code (0)
+[Msg] $$PM__ { "MachineName": "MACHINE1", "MsgTime": "2025-08-20T18:59:55Z", "type": 0, "Progress": 100.0, "Context": "MARKER_PROJECT_FINALIZE" } __$$
