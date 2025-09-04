@@ -1,0 +1,6 @@
+terratoolssh.exe RealityMeshProcess.tcl -command_file "dataset1.txt"
+Input offset: 1.0 2.0 3.0
+Converted offset: 100.0 200.0 300.0
+Error: No models imported
+Process completed with exit code: 0
+Time to run TT project: 10 seconds
