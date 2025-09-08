@@ -1,2 +1,8 @@
-{ "name":"logtoexcel", "version-string":"0.1.0",
-  "dependencies": ["libxlsxwriter","fmt"] }
+{
+  "name": "logtoexcel",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "fmt",
+    "libxlsxwriter"
+  ]
+}
