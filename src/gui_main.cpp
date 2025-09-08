@@ -9,6 +9,9 @@
 #include <shellapi.h>
 #include <shobjidl.h>
 #include <commctrl.h>
+#include <dwmapi.h>
+#include <uxtheme.h>
+#include <vssym32.h>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -20,8 +23,93 @@
 #pragma comment(lib, "Ole32.lib")
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Uuid.lib")
+#pragma comment(lib, "Dwmapi.lib")
+#pragma comment(lib, "UxTheme.lib")
+// optional for GradientFill (if you use gradient backgrounds):
+// #include <msimg32.h>
+// #pragma comment(lib, "Msimg32.lib")
 
 namespace fs = std::filesystem;
+
+// ---------- Theming ----------
+struct Theme {
+    bool    dark = false;
+    COLORREF bg;         // main background
+    COLORREF panel;      // panels / drop zone
+    COLORREF border;     // borders / separators
+    COLORREF text;       // normal text
+    COLORREF subtext;    // dim text
+    COLORREF accent;     // accent
+    HBRUSH  hbrBg = nullptr;
+    HBRUSH  hbrPanel = nullptr;
+};
+static Theme gTheme;
+
+// Query system dark mode (AppsUseLightTheme = 0 => dark)
+static bool query_system_dark() {
+    HKEY hKey;
+    DWORD val = 1, sz = sizeof(val);
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        RegQueryValueExW(hKey, L"AppsUseLightTheme", nullptr, nullptr, (LPBYTE)&val, &sz);
+        RegCloseKey(hKey);
+    }
+    return val == 0;
+}
+
+static void free_theme_brushes() {
+    if (gTheme.hbrBg)    { DeleteObject(gTheme.hbrBg);    gTheme.hbrBg = nullptr; }
+    if (gTheme.hbrPanel) { DeleteObject(gTheme.hbrPanel); gTheme.hbrPanel = nullptr; }
+}
+
+static void load_theme(bool forceDark = false, bool forceLight = false) {
+    free_theme_brushes();
+    gTheme.dark = forceDark ? true : (forceLight ? false : query_system_dark());
+
+    if (gTheme.dark) {
+        gTheme.bg     = RGB(32, 32, 36);
+        gTheme.panel  = RGB(45, 45, 50);
+        gTheme.border = RGB(70, 70, 75);
+        gTheme.text   = RGB(235,235,235);
+        gTheme.subtext= RGB(170,170,170);
+        gTheme.accent = RGB(0, 120, 215); // Windows blue
+    } else {
+        gTheme.bg     = RGB(250,250,250);
+        gTheme.panel  = RGB(244,244,244);
+        gTheme.border = RGB(200,200,200);
+        gTheme.text   = RGB(25,25,25);
+        gTheme.subtext= RGB(100,100,100);
+        gTheme.accent = RGB(0, 120, 215);
+    }
+    gTheme.hbrBg    = CreateSolidBrush(gTheme.bg);
+    gTheme.hbrPanel = CreateSolidBrush(gTheme.panel);
+}
+
+// Try enable Mica/Tabbed (Windows 11); safe no‑op on earlier versions
+static void apply_backdrop(HWND hwnd) {
+#ifndef DWMWA_SYSTEMBACKDROP_TYPE
+#define DWMWA_SYSTEMBACKDROP_TYPE 38
+#endif
+#ifndef DWMSBT_MAINWINDOW
+#define DWMSBT_MAINWINDOW 2
+#define DWMSBT_TABBEDWINDOW 3
+#endif
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+    BOOL useDark = gTheme.dark ? TRUE : FALSE;
+    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof(useDark));
+    int backdrop = DWMSBT_MAINWINDOW; // subtle Mica
+    DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop));
+}
+
+// Opt‑in per‑monitor DPI (sharp text)
+static void enable_per_monitor_dpi() {
+    // On older SDKs this may be unavailable; ignore failure
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+}
 
 // ---------------------- small helpers ----------------------
 static std::string narrow(const std::wstring& ws) {
@@ -160,18 +248,22 @@ static void create_fonts() {
 }
 
 static void paint_dropzone(HDC hdc, RECT rc) {
-    HBRUSH bg = CreateSolidBrush(RGB(248,248,248));
-    FillRect(hdc, &rc, bg); DeleteObject(bg);
+    // Panel fill
+    FillRect(hdc, &rc, gTheme.hbrPanel);
 
-    HPEN pen = CreatePen(PS_DOT, 1, RGB(150,150,150));
-    HGDIOBJ oldPen = SelectObject(hdc, pen);
+    // Rounded border
     HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
-    Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
-    SelectObject(hdc, oldBrush); SelectObject(hdc, oldPen); DeleteObject(pen);
+    HPEN pen = CreatePen(PS_SOLID, 2, gTheme.accent);
+    HGDIOBJ oldPen = SelectObject(hdc, pen);
+    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 18, 18);
+    SelectObject(hdc, oldPen); DeleteObject(pen);
+    SelectObject(hdc, oldBrush);
 
+    // Title
     SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, gTheme.text);
     HFONT old = (HFONT)SelectObject(hdc, g_hFontTitle);
-    const wchar_t* title = L"Drag and drop logs here";
+    const wchar_t* title = L"\xE8E5  Drop your logs here"; // MDL2 'OpenFile' glyph
     DrawTextW(hdc, title, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     SelectObject(hdc, old);
 }
@@ -182,6 +274,27 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     static RECT dropRc{40, 80, 760, 280};
 
     switch (msg) {
+        case WM_CTLCOLORDLG:
+        case WM_ERASEBKGND:
+            return (LRESULT)gTheme.hbrBg;
+
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLOREDIT:
+        case WM_CTLCOLORBTN: {
+            HDC hdc = (HDC)w;
+            SetTextColor(hdc, gTheme.text);
+            SetBkColor(hdc, gTheme.bg);
+            return (LRESULT)gTheme.hbrBg;
+        }
+
+        case WM_SETTINGCHANGE:
+            if (l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) {
+                load_theme(); apply_backdrop(h);
+                SetClassLongPtr(h, GCLP_HBRBACKGROUND, (LONG_PTR)gTheme.hbrBg);
+                InvalidateRect(h, nullptr, TRUE);
+            }
+            return 0;
+
         case WM_CREATE: {
             create_fonts();
             // radios
@@ -210,12 +323,31 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
             SendMessage(hBtnOpen,   WM_SETFONT, (WPARAM)g_hFontBase, TRUE);
             SendMessage(hEditLog,   WM_SETFONT, (WPARAM)g_hFontBase, TRUE);
 
+            // Let common controls adopt Explorer theme
+            SetWindowTheme(hRadMaster, L"Explorer", nullptr);
+            SetWindowTheme(hRadReport, L"Explorer", nullptr);
+            SetWindowTheme(hRadBoth,   L"Explorer", nullptr);
+            SetWindowTheme(hBtnChoose, L"Explorer", nullptr);
+            SetWindowTheme(hBtnRun,    L"Explorer", nullptr);
+            SetWindowTheme(hBtnOpen,   L"Explorer", nullptr);
+            SetWindowTheme(hEditLog,   L"Explorer", nullptr);
+
             DragAcceptFiles(h, TRUE);
             return 0;
         }
         case WM_PAINT: {
             PAINTSTRUCT ps; HDC hdc = BeginPaint(h, &ps);
+
+            // Header separator
+            RECT client; GetClientRect(h, &client);
+            HPEN sep = CreatePen(PS_SOLID, 1, gTheme.border);
+            HGDIOBJ oldPen = SelectObject(hdc, sep);
+            MoveToEx(hdc, 40, 56, nullptr); LineTo(hdc, client.right-40, 56);
+            SelectObject(hdc, oldPen); DeleteObject(sep);
+
+            // Drop zone
             paint_dropzone(hdc, dropRc);
+
             EndPaint(h, &ps);
             return 0;
         }
@@ -278,6 +410,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         case WM_DESTROY: {
             if (g_hFontTitle) DeleteObject(g_hFontTitle);
             if (g_hFontBase)  DeleteObject(g_hFontBase);
+            free_theme_brushes();
             PostQuitMessage(0);
             return 0;
         }
@@ -286,13 +419,16 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
 }
 
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmd) {
+    enable_per_monitor_dpi();
+    load_theme(); // picks current system mode
+
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_STANDARD_CLASSES}; InitCommonControlsEx(&icc);
 
     const wchar_t* cls = L"LogToExcel.GUI";
     WNDCLASSEXW wc{sizeof(wc)}; wc.hInstance = hInst; wc.lpszClassName = cls;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
+    wc.hbrBackground = gTheme.hbrBg;  // theme background
     wc.lpfnWndProc = WndProc;
     RegisterClassExW(&wc);
 
@@ -301,6 +437,7 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmd) {
     HWND hWnd = CreateWindowExW(0, cls, L"Log to Excel", WS_OVERLAPPEDWINDOW,
                                 CW_USEDEFAULT, CW_USEDEFAULT, wr.right-wr.left, wr.bottom-wr.top,
                                 nullptr, nullptr, hInst, nullptr);
+    apply_backdrop(hWnd);
     ShowWindow(hWnd, nCmd); UpdateWindow(hWnd);
 
     MSG msg;
