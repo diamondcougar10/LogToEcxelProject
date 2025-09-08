@@ -53,17 +53,17 @@ add_library(logtoexcel_lib
   src/util_time.cpp
   src/models.cpp
   src/single_sheet_writer.cpp
-  $<$<PLATFORM_ID:Windows>:src/win_file_dialogs.cpp>
 )
 target_include_directories(logtoexcel_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(logtoexcel_lib PUBLIC fmt::fmt-header-only ${XLSXWRITER_TARGET})
 
-# ---------- executable ----------
-add_executable(logtoExcel src/main.cpp)
-target_link_libraries(logtoExcel PRIVATE logtoexcel_lib)
-
+# --- GUI on Windows, CLI elsewhere ---
 if (WIN32)
-  target_link_libraries(logtoExcel PRIVATE Ole32 Shell32 Uuid)
+  add_executable(logtoExcel WIN32 src/gui_main.cpp)
+  target_link_libraries(logtoExcel PRIVATE logtoexcel_lib Ole32 Shell32 Uuid Comctl32)
+else()
+  add_executable(logtoExcel src/main.cpp)  # CLI main for non-Windows
+  target_link_libraries(logtoExcel PRIVATE logtoexcel_lib)
 endif()
 
 # ---------- post-build: copy ALL vcpkg runtime DLLs per configuration ----------
