@@ -69,7 +69,7 @@ endif()
 # ===== GUI exe (WIN32 subsystem) — the one you launch by default =====
 if (WIN32)
   add_executable(logtoExcel_gui WIN32 src/gui_main.cpp)
-  target_link_libraries(logtoExcel_gui PRIVATE logtoexcel_lib Ole32 Shell32 Uuid Comctl32)
+  target_link_libraries(logtoExcel_gui PRIVATE logtoexcel_lib Ole32 Shell32 Uuid Comctl32 Dwmapi UxTheme)
 
   # Copy vcpkg runtime DLLs next to the GUI exe
   if(_VCPKG_DLLS_DEBUG)
