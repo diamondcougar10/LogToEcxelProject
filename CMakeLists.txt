@@ -45,7 +45,7 @@ else()
   set(XLSXWRITER_TARGET PkgConfig::XLSXWRITER)
 endif()
 
-# ---- shared library stays the same ----
+# ===== shared lib (unchanged) =====
 add_library(logtoexcel_lib
   src/excel_writer.cpp
   src/photomesh_parser.cpp
@@ -58,44 +58,45 @@ add_library(logtoexcel_lib
 target_include_directories(logtoexcel_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(logtoexcel_lib PUBLIC fmt::fmt-header-only ${XLSXWRITER_TARGET})
 
-# ---- GUI exe (default app on Windows; no startup prompts) ----
+# Gather DLLs once
+if(EXISTS "${_VCPKG_INSTALLED_ROOT}/debug/bin")
+  file(GLOB _VCPKG_DLLS_DEBUG   "${_VCPKG_INSTALLED_ROOT}/debug/bin/*.dll")
+endif()
+if(EXISTS "${_VCPKG_INSTALLED_ROOT}/bin")
+  file(GLOB _VCPKG_DLLS_RELEASE "${_VCPKG_INSTALLED_ROOT}/bin/*.dll")
+endif()
+
+# ===== GUI exe (WIN32 subsystem) — the one you launch by default =====
 if (WIN32)
-  add_executable(logtoExcel_gui WIN32 src/gui_main.cpp)
-  target_link_libraries(logtoExcel_gui PRIVATE logtoexcel_lib Ole32 Shell32 Uuid Comctl32)
+  add_executable(logtoExcel WIN32 src/gui_main.cpp)
+  target_link_libraries(logtoExcel PRIVATE logtoexcel_lib Ole32 Shell32 Uuid Comctl32)
 
-  # copy vcpkg runtime DLLs (debug/release) next to the GUI exe
-  if(EXISTS "${_VCPKG_INSTALLED_ROOT}/debug/bin")
-    file(GLOB _VCPKG_DLLS_DEBUG   "${_VCPKG_INSTALLED_ROOT}/debug/bin/*.dll")
-  endif()
-  if(EXISTS "${_VCPKG_INSTALLED_ROOT}/bin")
-    file(GLOB _VCPKG_DLLS_RELEASE "${_VCPKG_INSTALLED_ROOT}/bin/*.dll")
-  endif()
-
+  # Copy vcpkg runtime DLLs next to the GUI exe
   if(_VCPKG_DLLS_DEBUG)
-    add_custom_command(TARGET logtoExcel_gui POST_BUILD
+    add_custom_command(TARGET logtoExcel POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               ${_VCPKG_DLLS_DEBUG}
-              "$<TARGET_FILE_DIR:logtoExcel_gui>"
+              "$<TARGET_FILE_DIR:logtoExcel>"
       COMMENT "Copying vcpkg DEBUG DLLs for GUI"
       VERBATIM
       CONFIGURATIONS Debug)
   endif()
   if(_VCPKG_DLLS_RELEASE)
-    add_custom_command(TARGET logtoExcel_gui POST_BUILD
+    add_custom_command(TARGET logtoExcel POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               ${_VCPKG_DLLS_RELEASE}
-              "$<TARGET_FILE_DIR:logtoExcel_gui>"
+              "$<TARGET_FILE_DIR:logtoExcel>"
       COMMENT "Copying vcpkg RELEASE DLLs for GUI"
-      VERBATIM
+              VERBATIM
       CONFIGURATIONS Release RelWithDebInfo MinSizeRel)
   endif()
 endif()
 
-# ---- CLI exe (for scripts/automation; unchanged flags) ----
+# ===== CLI exe (console) — for automation/scripts =====
 add_executable(logtoExcel_cli src/main.cpp)
 target_link_libraries(logtoExcel_cli PRIVATE logtoexcel_lib)
 
-# copy DLLs for CLI too
+# Copy vcpkg runtime DLLs next to the CLI exe, too
 if(_VCPKG_DLLS_DEBUG)
   add_custom_command(TARGET logtoExcel_cli POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -114,4 +115,3 @@ if(_VCPKG_DLLS_RELEASE)
     VERBATIM
     CONFIGURATIONS Release RelWithDebInfo MinSizeRel)
 endif()
-
