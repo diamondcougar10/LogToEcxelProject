@@ -62,9 +62,13 @@ struct RealityMeshRow {
     std::string offsetX;
     std::string offsetY;
     std::string offsetZ;
+    std::string pivotCenterX;
+    std::string pivotCenterY;
+    std::string pivotCenterZ;
     std::string flipYZ;
     std::string trim;
     std::string collision;
+    std::string visualLOD;
     std::string outputFolder;
     std::string totalFiles;
     std::string totalSizeGB;
