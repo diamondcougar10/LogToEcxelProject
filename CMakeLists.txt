@@ -45,7 +45,7 @@ else()
   set(XLSXWRITER_TARGET PkgConfig::XLSXWRITER)
 endif()
 
-# ---------- library ----------
+# ---- shared library stays the same ----
 add_library(logtoexcel_lib
   src/excel_writer.cpp
   src/photomesh_parser.cpp
@@ -58,41 +58,59 @@ add_library(logtoexcel_lib
 target_include_directories(logtoexcel_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(logtoexcel_lib PUBLIC fmt::fmt-header-only ${XLSXWRITER_TARGET})
 
-# ---------- executable ----------
-add_executable(logtoExcel src/main.cpp)
-target_link_libraries(logtoExcel PRIVATE logtoexcel_lib)
-
+# ---- GUI exe (default app on Windows; no startup prompts) ----
 if (WIN32)
-  target_link_libraries(logtoExcel PRIVATE Ole32 Shell32 Uuid)
+  add_executable(logtoExcel_gui WIN32 src/gui_main.cpp)
+  target_link_libraries(logtoExcel_gui PRIVATE logtoexcel_lib Ole32 Shell32 Uuid Comctl32)
+
+  # copy vcpkg runtime DLLs (debug/release) next to the GUI exe
+  if(EXISTS "${_VCPKG_INSTALLED_ROOT}/debug/bin")
+    file(GLOB _VCPKG_DLLS_DEBUG   "${_VCPKG_INSTALLED_ROOT}/debug/bin/*.dll")
+  endif()
+  if(EXISTS "${_VCPKG_INSTALLED_ROOT}/bin")
+    file(GLOB _VCPKG_DLLS_RELEASE "${_VCPKG_INSTALLED_ROOT}/bin/*.dll")
+  endif()
+
+  if(_VCPKG_DLLS_DEBUG)
+    add_custom_command(TARGET logtoExcel_gui POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              ${_VCPKG_DLLS_DEBUG}
+              "$<TARGET_FILE_DIR:logtoExcel_gui>"
+      COMMENT "Copying vcpkg DEBUG DLLs for GUI"
+      VERBATIM
+      CONFIGURATIONS Debug)
+  endif()
+  if(_VCPKG_DLLS_RELEASE)
+    add_custom_command(TARGET logtoExcel_gui POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              ${_VCPKG_DLLS_RELEASE}
+              "$<TARGET_FILE_DIR:logtoExcel_gui>"
+      COMMENT "Copying vcpkg RELEASE DLLs for GUI"
+      VERBATIM
+      CONFIGURATIONS Release RelWithDebInfo MinSizeRel)
+  endif()
 endif()
 
-# ---------- post-build: copy ALL vcpkg runtime DLLs per configuration ----------
-# (solves "minizip.dll not found", "xlsxwriter.dll not found", etc.)
-if(EXISTS "${_VCPKG_INSTALLED_ROOT}/debug/bin")
-  file(GLOB _VCPKG_DLLS_DEBUG   "${_VCPKG_INSTALLED_ROOT}/debug/bin/*.dll")
-endif()
-if(EXISTS "${_VCPKG_INSTALLED_ROOT}/bin")
-  file(GLOB _VCPKG_DLLS_RELEASE "${_VCPKG_INSTALLED_ROOT}/bin/*.dll")
-endif()
+# ---- CLI exe (for scripts/automation; unchanged flags) ----
+add_executable(logtoExcel_cli src/main.cpp)
+target_link_libraries(logtoExcel_cli PRIVATE logtoexcel_lib)
 
-# Debug: copy debug DLLs
+# copy DLLs for CLI too
 if(_VCPKG_DLLS_DEBUG)
-  add_custom_command(TARGET logtoExcel POST_BUILD
+  add_custom_command(TARGET logtoExcel_cli POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${_VCPKG_DLLS_DEBUG}
-            "$<TARGET_FILE_DIR:logtoExcel>"
-    COMMENT "Copying vcpkg DEBUG DLLs"
+            "$<TARGET_FILE_DIR:logtoExcel_cli>"
+    COMMENT "Copying vcpkg DEBUG DLLs for CLI"
     VERBATIM
     CONFIGURATIONS Debug)
 endif()
-
-# Release (and similar): copy release DLLs
 if(_VCPKG_DLLS_RELEASE)
-  add_custom_command(TARGET logtoExcel POST_BUILD
+  add_custom_command(TARGET logtoExcel_cli POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${_VCPKG_DLLS_RELEASE}
-            "$<TARGET_FILE_DIR:logtoExcel>"
-    COMMENT "Copying vcpkg RELEASE DLLs"
+            "$<TARGET_FILE_DIR:logtoExcel_cli>"
+    COMMENT "Copying vcpkg RELEASE DLLs for CLI"
     VERBATIM
     CONFIGURATIONS Release RelWithDebInfo MinSizeRel)
 endif()
