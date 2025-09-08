@@ -10,10 +10,6 @@
 #include <string>
 #include <vector>
 
-#ifdef _WIN32
-#include <combaseapi.h>
-#include "win_file_dialogs.hpp" // optional, if you added GUI earlier
-#endif
 
 namespace fs = std::filesystem;
 
@@ -48,24 +44,9 @@ int main(int argc, char **argv) {
   std::string outputsDir; bool doMaster, doReport;
   parse_extra_flags(argc, argv, outputsDir, doMaster, doReport);
 
-#ifdef _WIN32
-  if (opt.photomeshLogs.empty() && opt.realitymeshLogs.empty()) {
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    auto pm = open_logs_dialog(L"Select PhotoMesh log(s)", true);
-    auto rm = open_logs_dialog(L"Select RealityMesh log(s)", true);
-    for (auto& s : pm) opt.photomeshLogs.push_back(s);
-    for (auto& s : rm) opt.realitymeshLogs.push_back(s);
-    if (opt.output.empty()) {
-      std::string save = save_xlsx_dialog(L"Save per-run report (optional)", L"Report.xlsx");
-      if (!save.empty()) opt.output = save; else doReport = false;
-    }
-    CoUninitialize();
-  }
-#endif
-
   if (opt.photomeshLogs.empty() && opt.realitymeshLogs.empty()) {
     fmt::print(stderr,
-      "Usage: logtoExcel --photomesh <pm.log> --realitymesh <rm.log> -o out.xlsx "
+      "Usage: logtoExcel_cli --photomesh <pm.log> --realitymesh <rm.log> -o out.xlsx "
       "[--outputs-dir <folder>] [--no-master] [--no-report|--single-only]\n");
     return 2;
   }
