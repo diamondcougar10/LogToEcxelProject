@@ -49,7 +49,7 @@
               "RelativeDocumentMoniker": "src\\util_time.cpp",
               "ToolTip": "C:\\Users\\tifte\\source\\repos\\LogToEcxelProject\\src\\util_time.cpp",
               "RelativeToolTip": "src\\util_time.cpp",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAASAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAATAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
               "WhenOpened": "2025-09-08T01:21:31.517Z",
               "EditorCaption": ""
@@ -63,8 +63,7 @@
               "ToolTip": "C:\\Users\\tifte\\source\\repos\\LogToEcxelProject\\CMakeSettings.json",
               "RelativeToolTip": "CMakeSettings.json",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
-              "WhenOpened": "2025-09-08T00:50:11.459Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-09-08T00:50:11.459Z"
             },
             {
               "$type": "Document",
@@ -76,8 +75,7 @@
               "RelativeToolTip": "CMakeLists.txt",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAABwAAAAkAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003109|",
-              "WhenOpened": "2025-09-04T17:47:48.831Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-09-04T17:47:48.831Z"
             }
           ]
         }
