@@ -14,6 +14,7 @@ add_library(logtoexcel_lib
     src/realitymesh_parser.cpp
     src/util_time.cpp
     src/models.cpp
+    $<$<PLATFORM_ID:Windows>:src/win_file_dialogs.cpp>
 )
 
 # Headers only
@@ -23,11 +24,15 @@ set_target_properties(logtoexcel_lib PROPERTIES
 
 target_include_directories(logtoexcel_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${XLSXWRITER_INCLUDE_DIRS})
 
-target_link_libraries(logtoexcel_lib PUBLIC fmt::fmt ${XLSXWRITER_LIBRARIES})
+target_link_libraries(logtoexcel_lib PUBLIC fmt::fmt-header-only ${XLSXWRITER_LIBRARIES})
 
 add_executable(logtoExcel src/main.cpp)
 
 target_link_libraries(logtoExcel PRIVATE logtoexcel_lib)
+
+if (WIN32)
+  target_link_libraries(logtoExcel PRIVATE Ole32 Shell32 Uuid)
+endif()
 
 enable_testing()
 add_subdirectory(tests)
