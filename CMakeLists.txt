@@ -52,7 +52,6 @@ add_library(logtoexcel_lib
   src/realitymesh_parser.cpp
   src/util_time.cpp
   src/models.cpp
-  src/single_sheet_writer.cpp
 )
 target_include_directories(logtoexcel_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(logtoexcel_lib PUBLIC fmt::fmt-header-only ${XLSXWRITER_TARGET})
@@ -60,10 +59,6 @@ target_link_libraries(logtoexcel_lib PUBLIC fmt::fmt-header-only ${XLSXWRITER_TA
 # ---------- executable ----------
 add_executable(logtoExcel src/main.cpp)
 target_link_libraries(logtoExcel PRIVATE logtoexcel_lib)
-
-if (WIN32)
-  target_link_libraries(logtoExcel PRIVATE Ole32 Shell32 Uuid)
-endif()
 
 # ---------- post-build: copy ALL vcpkg runtime DLLs per configuration ----------
 # (solves "minizip.dll not found", "xlsxwriter.dll not found", etc.)
