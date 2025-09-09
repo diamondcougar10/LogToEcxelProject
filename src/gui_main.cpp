@@ -45,6 +45,15 @@ struct Theme {
 };
 static Theme gTheme;
 
+// Theme override tri-state
+enum class ThemeMode { FollowSystem, ForceDark, ForceLight };
+static ThemeMode gThemeMode = ThemeMode::FollowSystem;
+
+// Fullscreen state
+static bool  gFullscreen = false;
+static RECT  gRestoreRect{};
+static DWORD gRestoreStyle = 0, gRestoreExStyle = 0;
+
 // Query system dark mode (AppsUseLightTheme = 0 => dark)
 static bool query_system_dark() {
     HKEY hKey;
@@ -66,6 +75,10 @@ static void free_theme_brushes() {
 
 static void load_theme(bool forceDark = false, bool forceLight = false) {
     free_theme_brushes();
+    // New: honor global override first
+    if (gThemeMode == ThemeMode::ForceDark)      { forceDark = true; forceLight = false; }
+    else if (gThemeMode == ThemeMode::ForceLight){ forceDark = false; forceLight = true; }
+
     gTheme.dark = forceDark ? true : (forceLight ? false : query_system_dark());
 
     if (gTheme.dark) {
@@ -236,6 +249,11 @@ static void run_pipeline(HWND hwndLog) {
 #define IDC_BTN_RUN      1005
 #define IDC_BTN_OPEN     1006
 #define IDC_EDIT_LOG     1007
+#define IDC_BTN_SETTINGS 1008
+#define IDM_SET_THEME_SYS   3001
+#define IDM_SET_THEME_DARK  3002
+#define IDM_SET_THEME_LIGHT 3003
+#define IDM_SET_FULLSCREEN  3004
 
 static HFONT g_hFontTitle = nullptr;
 static HFONT g_hFontBase  = nullptr;
@@ -268,9 +286,106 @@ static void paint_dropzone(HDC hdc, RECT rc) {
     SelectObject(hdc, old);
 }
 
+static void layout_controls(HWND h,
+                            HWND hRadMaster, HWND hRadReport, HWND hRadBoth,
+                            HWND hBtnChoose, HWND hBtnRun, HWND hBtnOpen, HWND hBtnSettings,
+                            HWND hEditLog, RECT& dropRc) {
+    RECT rc; GetClientRect(h, &rc);
+
+    const int MARGIN  = 48;
+    const int GUTTER  = 16;
+    const int lineH   = 34;
+
+    // Radios in a row, a bit larger spacing
+    const int headerY = 20;
+    MoveWindow(hRadMaster, MARGIN,                 headerY, 200, lineH, TRUE);
+    MoveWindow(hRadReport, MARGIN + 200 + GUTTER,  headerY, 160, lineH, TRUE);
+    MoveWindow(hRadBoth,   MARGIN + 200 + GUTTER + 160 + GUTTER, headerY, 180, lineH, TRUE);
+
+    // Drop zone ~= top 45% of client
+    int top = 84;
+    int dropH = (rc.bottom - top - MARGIN) * 45 / 100;
+    dropRc.left   = MARGIN;
+    dropRc.top    = top;
+    dropRc.right  = rc.right - MARGIN;
+    dropRc.bottom = top + dropH;
+
+    // Buttons row (bigger sizes & clearer spacing)
+    int by = dropRc.bottom + 24;
+    int x  = MARGIN;
+
+    int wChoose = 220;
+    int wRun    = 120;
+    int wOpen   = 260;
+    int wSett   = 140;
+
+    MoveWindow(hBtnChoose,   x,          by, wChoose, lineH + 4, TRUE);
+    x += wChoose + GUTTER;
+    MoveWindow(hBtnRun,      x,          by, wRun,    lineH + 4, TRUE);
+    x += wRun + GUTTER;
+    MoveWindow(hBtnOpen,     x,          by, wOpen,   lineH + 4, TRUE);
+
+    // Settings button anchored to the right margin
+    MoveWindow(hBtnSettings, rc.right - MARGIN - wSett, by, wSett, lineH + 4, TRUE);
+
+    // Console occupies the rest
+    int logTop = by + 24;
+    MoveWindow(hEditLog, MARGIN, logTop, rc.right - 2 * MARGIN, rc.bottom - logTop - MARGIN, TRUE);
+}
+
+static void apply_fullscreen(HWND h, bool enable) {
+    if (enable == gFullscreen) return;
+    gFullscreen = enable;
+
+    if (enable) {
+        // Save current placement/style
+        gRestoreStyle   = GetWindowLong(h, GWL_STYLE);
+        gRestoreExStyle = GetWindowLong(h, GWL_EXSTYLE);
+        GetWindowRect(h, &gRestoreRect);
+
+        // Switch to borderless fullscreen on current monitor
+        MONITORINFO mi{ sizeof(mi) };
+        GetMonitorInfo(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi);
+
+        SetWindowLong(h, GWL_STYLE, (gRestoreStyle & ~(WS_OVERLAPPED | WS_CAPTION |
+                         WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME)) | WS_POPUP);
+        SetWindowLong(h, GWL_EXSTYLE, gRestoreExStyle);
+        SetWindowPos(h, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
+                     mi.rcMonitor.right - mi.rcMonitor.left,
+                     mi.rcMonitor.bottom - mi.rcMonitor.top,
+                     SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    } else {
+        // Restore windowed style/size
+        SetWindowLong(h, GWL_STYLE, gRestoreStyle);
+        SetWindowLong(h, GWL_EXSTYLE, gRestoreExStyle);
+        SetWindowPos(h, nullptr, gRestoreRect.left, gRestoreRect.top,
+                     gRestoreRect.right - gRestoreRect.left,
+                     gRestoreRect.bottom - gRestoreRect.top,
+                     SWP_FRAMECHANGED | SWP_NOZORDER | SWP_SHOWWINDOW);
+    }
+
+    // Re-apply backdrop + redraw
+    apply_backdrop(h);
+    InvalidateRect(h, nullptr, TRUE);
+}
+
+static HMENU build_settings_menu() {
+    HMENU m = CreatePopupMenu();
+    AppendMenuW(m, MF_STRING | (gThemeMode == ThemeMode::FollowSystem ? MF_CHECKED : 0),
+                IDM_SET_THEME_SYS, L"Follow system");
+    AppendMenuW(m, MF_STRING | (gThemeMode == ThemeMode::ForceDark    ? MF_CHECKED : 0),
+                IDM_SET_THEME_DARK, L"Dark");
+    AppendMenuW(m, MF_STRING | (gThemeMode == ThemeMode::ForceLight   ? MF_CHECKED : 0),
+                IDM_SET_THEME_LIGHT, L"Light");
+    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(m, MF_STRING | (gFullscreen ? MF_CHECKED : 0),
+                IDM_SET_FULLSCREEN, L"Fullscreen (F11)");
+    return m;
+}
+
 // ---------------------- Win32 Window Proc ----------------------
 static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
-    static HWND hRadMaster, hRadReport, hRadBoth, hBtnChoose, hBtnRun, hBtnOpen, hEditLog;
+    static HWND hRadMaster, hRadReport, hRadBoth, hBtnChoose, hBtnRun, hBtnOpen, hBtnSettings, hEditLog;
     static RECT dropRc{40, 80, 760, 280};
 
     switch (msg) {
@@ -288,7 +403,8 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         }
 
         case WM_SETTINGCHANGE:
-            if (l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) {
+            if (gThemeMode == ThemeMode::FollowSystem &&
+                l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) {
                 load_theme(); apply_backdrop(h);
                 SetClassLongPtr(h, GCLP_HBRBACKGROUND, (LONG_PTR)gTheme.hbrBg);
                 InvalidateRect(h, nullptr, TRUE);
@@ -308,8 +424,10 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
 
             // buttons
             hBtnChoose = CreateWindowW(L"BUTTON", L"Choose Logs…", WS_CHILD|WS_VISIBLE, 40, 320, 140, 28, h, (HMENU)IDC_BTN_CHOOSE, nullptr, nullptr);
-            hBtnRun    = CreateWindowW(L"BUTTON", L"Run",          WS_CHILD|WS_VISIBLE, 190,320, 80, 28, h, (HMENU)IDC_BTN_RUN, nullptr, nullptr);
+            hBtnRun    = CreateWindowW(L"BUTTON", L"Run",          WS_CHILD|WS_VISIBLE | BS_DEFPUSHBUTTON, 190,320, 80, 28, h, (HMENU)IDC_BTN_RUN, nullptr, nullptr);
             hBtnOpen   = CreateWindowW(L"BUTTON", L"Open Output Folder", WS_CHILD|WS_VISIBLE, 280, 320, 200, 28, h, (HMENU)IDC_BTN_OPEN, nullptr, nullptr);
+            hBtnSettings = CreateWindowW(L"BUTTON", L"Settings…", WS_CHILD|WS_VISIBLE,
+                                        520, 320, 120, 28, h, (HMENU)IDC_BTN_SETTINGS, nullptr, nullptr);
 
             // status log (read-only, multiline)
             hEditLog = CreateWindowW(L"EDIT", L"", WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY,
@@ -320,8 +438,9 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
             SendMessage(hRadBoth,   WM_SETFONT, (WPARAM)g_hFontBase, TRUE);
             SendMessage(hBtnChoose, WM_SETFONT, (WPARAM)g_hFontBase, TRUE);
             SendMessage(hBtnRun,    WM_SETFONT, (WPARAM)g_hFontBase, TRUE);
-            SendMessage(hBtnOpen,   WM_SETFONT, (WPARAM)g_hFontBase, TRUE);
-            SendMessage(hEditLog,   WM_SETFONT, (WPARAM)g_hFontBase, TRUE);
+            SendMessage(hBtnOpen,     WM_SETFONT, (WPARAM)g_hFontBase, TRUE);
+            SendMessage(hBtnSettings, WM_SETFONT, (WPARAM)g_hFontBase, TRUE);
+            SendMessage(hEditLog,     WM_SETFONT, (WPARAM)g_hFontBase, TRUE);
 
             // Let common controls adopt Explorer theme
             SetWindowTheme(hRadMaster, L"Explorer", nullptr);
@@ -329,12 +448,22 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
             SetWindowTheme(hRadBoth,   L"Explorer", nullptr);
             SetWindowTheme(hBtnChoose, L"Explorer", nullptr);
             SetWindowTheme(hBtnRun,    L"Explorer", nullptr);
-            SetWindowTheme(hBtnOpen,   L"Explorer", nullptr);
-            SetWindowTheme(hEditLog,   L"Explorer", nullptr);
+            SetWindowTheme(hBtnOpen,     L"Explorer", nullptr);
+            SetWindowTheme(hBtnSettings, L"Explorer", nullptr);
+            SetWindowTheme(hEditLog,     L"Explorer", nullptr);
 
             DragAcceptFiles(h, TRUE);
+
+            layout_controls(h, hRadMaster,hRadReport,hRadBoth,
+                            hBtnChoose,hBtnRun,hBtnOpen,hBtnSettings,
+                            hEditLog, dropRc);
             return 0;
         }
+        case WM_SIZE:
+            layout_controls(h, hRadMaster,hRadReport,hRadBoth,
+                            hBtnChoose,hBtnRun,hBtnOpen,hBtnSettings,
+                            hEditLog, dropRc);
+            return 0;
         case WM_PAINT: {
             PAINTSTRUCT ps; HDC hdc = BeginPaint(h, &ps);
 
@@ -404,9 +533,38 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
                     ::ShellExecuteW(nullptr, L"open", widen(g.outputsDir).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
                     break;
                 }
+                case IDC_BTN_SETTINGS: {
+                    HMENU m = build_settings_menu();
+                    RECT r; GetWindowRect(hBtnSettings, &r);
+                    TrackPopupMenu(m, TPM_LEFTALIGN | TPM_TOPALIGN,
+                                   r.left, r.bottom, 0, h, nullptr);
+                    DestroyMenu(m);
+                    return 0;
+                }
+                case IDM_SET_THEME_SYS:
+                    gThemeMode = ThemeMode::FollowSystem;
+                    load_theme(); apply_backdrop(h);
+                    InvalidateRect(h, nullptr, TRUE);
+                    return 0;
+                case IDM_SET_THEME_DARK:
+                    gThemeMode = ThemeMode::ForceDark;
+                    load_theme(true, false); apply_backdrop(h);
+                    InvalidateRect(h, nullptr, TRUE);
+                    return 0;
+                case IDM_SET_THEME_LIGHT:
+                    gThemeMode = ThemeMode::ForceLight;
+                    load_theme(false, true); apply_backdrop(h);
+                    InvalidateRect(h, nullptr, TRUE);
+                    return 0;
+                case IDM_SET_FULLSCREEN:
+                    apply_fullscreen(h, !gFullscreen);
+                    return 0;
             }
             return 0;
         }
+        case WM_KEYDOWN:
+            if (w == VK_F11) { apply_fullscreen(h, !gFullscreen); return 0; }
+            break;
         case WM_DESTROY: {
             if (g_hFontTitle) DeleteObject(g_hFontTitle);
             if (g_hFontBase)  DeleteObject(g_hFontBase);
@@ -432,9 +590,10 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmd) {
     wc.lpfnWndProc = WndProc;
     RegisterClassExW(&wc);
 
-    RECT wr{0,0,840,600};
-    AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);
-    HWND hWnd = CreateWindowExW(0, cls, L"Log to Excel", WS_OVERLAPPEDWINDOW,
+    RECT wr{0,0,1680,1200};
+    AdjustWindowRect(&wr, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE);
+    HWND hWnd = CreateWindowExW(0, cls, L"Log to Excel",
+                                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
                                 CW_USEDEFAULT, CW_USEDEFAULT, wr.right-wr.left, wr.bottom-wr.top,
                                 nullptr, nullptr, hInst, nullptr);
     apply_backdrop(hWnd);
