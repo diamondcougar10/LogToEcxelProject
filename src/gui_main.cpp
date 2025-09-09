@@ -295,43 +295,22 @@ static void layout_controls(HWND h,
     const int MARGIN  = 48;
     const int GUTTER  = 16;
     const int lineH   = 34;
-    const int btnH    = lineH + 4;
 
-    // Absolute minimums so nothing gets cut off
-    const int MIN_DROP_H    = 160;
-    const int MIN_CONSOLE_H = 160;
-
-    // Radios in a row
+    // Radios in a row, a bit larger spacing
     const int headerY = 20;
     MoveWindow(hRadMaster, MARGIN,                 headerY, 200, lineH, TRUE);
     MoveWindow(hRadReport, MARGIN + 200 + GUTTER,  headerY, 160, lineH, TRUE);
     MoveWindow(hRadBoth,   MARGIN + 200 + GUTTER + 160 + GUTTER, headerY, 180, lineH, TRUE);
 
-    // Top of drop zone
+    // Drop zone ~= top 45% of client
     int top = 84;
-
-    // Available vertical pixels below 'top' down to bottom margin
-    int avail = rc.bottom - top - MARGIN;
-    if (avail < 0) avail = 0;
-
-    // We need: dropH + 24 + btnH + 24 + consoleH  <= avail
-    // Start with drop zone as 45% of available, then clamp so console can have MIN_CONSOLE_H
-    int dropPreferred = (avail * 45) / 100;
-    int minRequiredBelowDrop = 24 + btnH + 24 + MIN_CONSOLE_H;
-    int dropH = dropPreferred;
-
-    // clamp dropH to [MIN_DROP_H, avail - minRequiredBelowDrop]
-    if (dropH < MIN_DROP_H) dropH = MIN_DROP_H;
-    if (dropH > avail - minRequiredBelowDrop) dropH = avail - minRequiredBelowDrop;
-    if (dropH < MIN_DROP_H) dropH = std::max(80, avail - minRequiredBelowDrop); // last resort
-
-    // Lay out drop zone
+    int dropH = (rc.bottom - top - MARGIN) * 45 / 100;
     dropRc.left   = MARGIN;
     dropRc.top    = top;
     dropRc.right  = rc.right - MARGIN;
-    dropRc.bottom = top + std::max(0, dropH);
+    dropRc.bottom = top + dropH;
 
-    // Buttons row
+    // Buttons row (bigger sizes & clearer spacing)
     int by = dropRc.bottom + 24;
     int x  = MARGIN;
 
@@ -340,42 +319,18 @@ static void layout_controls(HWND h,
     int wOpen   = 260;
     int wSett   = 140;
 
-    MoveWindow(hBtnChoose,   x,          by, wChoose, btnH, TRUE);
+    MoveWindow(hBtnChoose,   x,          by, wChoose, lineH + 4, TRUE);
     x += wChoose + GUTTER;
-    MoveWindow(hBtnRun,      x,          by, wRun,    btnH, TRUE);
+    MoveWindow(hBtnRun,      x,          by, wRun,    lineH + 4, TRUE);
     x += wRun + GUTTER;
-    MoveWindow(hBtnOpen,     x,          by, wOpen,   btnH, TRUE);
-    // Settings anchored to right margin
-    MoveWindow(hBtnSettings, rc.right - MARGIN - wSett, by, wSett, btnH, TRUE);
+    MoveWindow(hBtnOpen,     x,          by, wOpen,   lineH + 4, TRUE);
 
-    // Console fills the rest
+    // Settings button anchored to the right margin
+    MoveWindow(hBtnSettings, rc.right - MARGIN - wSett, by, wSett, lineH + 4, TRUE);
+
+    // Console occupies the rest
     int logTop = by + 24;
-    int logH   = rc.bottom - logTop - MARGIN;
-
-    // If console would be too small, steal space from drop zone and recompute
-    if (logH < MIN_CONSOLE_H) {
-        int need = MIN_CONSOLE_H - logH;
-        // Shrink drop zone, but not below MIN_DROP_H
-        int currentDropH = dropRc.bottom - dropRc.top;
-        int newDropH = std::max(MIN_DROP_H, currentDropH - need);
-
-        dropRc.bottom = dropRc.top + newDropH;
-
-        // Recompute positions with the updated dropRc
-        by = dropRc.bottom + 24;
-        x  = MARGIN;
-        MoveWindow(hBtnChoose,   x,          by, wChoose, btnH, TRUE);
-        x += wChoose + GUTTER;
-        MoveWindow(hBtnRun,      x,          by, wRun,    btnH, TRUE);
-        x += wRun + GUTTER;
-        MoveWindow(hBtnOpen,     x,          by, wOpen,   btnH, TRUE);
-        MoveWindow(hBtnSettings, rc.right - MARGIN - wSett, by, wSett, btnH, TRUE);
-
-        logTop = by + 24;
-        logH   = std::max(MIN_CONSOLE_H, rc.bottom - logTop - MARGIN);
-    }
-
-    MoveWindow(hEditLog, MARGIN, logTop, rc.right - 2 * MARGIN, std::max(0, logH), TRUE);
+    MoveWindow(hEditLog, MARGIN, logTop, rc.right - 2 * MARGIN, rc.bottom - logTop - MARGIN, TRUE);
 }
 
 static void apply_fullscreen(HWND h, bool enable) {
@@ -509,13 +464,6 @@ static LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
                             hBtnChoose,hBtnRun,hBtnOpen,hBtnSettings,
                             hEditLog, dropRc);
             return 0;
-        case WM_DPICHANGED: {
-            const RECT* pr = reinterpret_cast<const RECT*>(l);
-            SetWindowPos(h, nullptr, pr->left, pr->top,
-                         pr->right - pr->left, pr->bottom - pr->top,
-                         SWP_NOZORDER | SWP_NOACTIVATE);
-            return 0;
-        }
         case WM_PAINT: {
             PAINTSTRUCT ps; HDC hdc = BeginPaint(h, &ps);
 
@@ -642,27 +590,11 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmd) {
     wc.lpfnWndProc = WndProc;
     RegisterClassExW(&wc);
 
-    // Pick a size that fits the current work area (taskbar excluded), then center
-    RECT wa; SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
-    int workW = wa.right  - wa.left;
-    int workH = wa.bottom - wa.top;
-
-    // Target ~80% of work area, but don't go below a usable minimum
-    int targetW = std::max(1100, (workW * 80) / 100);
-    int targetH = std::max( 720, (workH * 75) / 100);
-
-    RECT wr{0,0,targetW,targetH};
-    AdjustWindowRectEx(&wr, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE, 0);
-    int winW = wr.right - wr.left;
-    int winH = wr.bottom - wr.top;
-
-    // Center within work area
-    int posX = wa.left + (workW - winW) / 2;
-    int posY = wa.top  + (workH - winH) / 2;
-
+    RECT wr{0,0,1680,1200};
+    AdjustWindowRect(&wr, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE);
     HWND hWnd = CreateWindowExW(0, cls, L"Log to Excel",
                                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                                posX, posY, winW, winH,
+                                CW_USEDEFAULT, CW_USEDEFAULT, wr.right-wr.left, wr.bottom-wr.top,
                                 nullptr, nullptr, hInst, nullptr);
     apply_backdrop(hWnd);
     ShowWindow(hWnd, nCmd); UpdateWindow(hWnd);
