@@ -96,6 +96,12 @@ endif()
 add_executable(logtoExcel_cli src/main.cpp)
 target_link_libraries(logtoExcel_cli PRIVATE logtoexcel_lib)
 
+if (WIN32)
+  target_compile_definitions(logtoexcel_lib   PUBLIC  NOMINMAX WIN32_LEAN_AND_MEAN)
+  target_compile_definitions(logtoExcel_gui   PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  target_compile_definitions(logtoExcel_cli   PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 # Copy vcpkg runtime DLLs next to the CLI exe, too
 if(_VCPKG_DLLS_DEBUG)
   add_custom_command(TARGET logtoExcel_cli POST_BUILD
