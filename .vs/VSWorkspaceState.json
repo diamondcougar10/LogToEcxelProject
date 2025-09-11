@@ -6,7 +6,9 @@
     ]
   },
   "ExpandedNodes": [
-    ""
+    "",
+    "\\src"
   ],
+  "SelectedNode": "\\src\\gui_main.cpp",
   "PreviewInSolutionExplorer": false
 }
