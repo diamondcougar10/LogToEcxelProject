@@ -1,4 +1,3 @@
-#define NOMINMAX
 #define UNICODE
 #define _UNICODE
 
@@ -328,13 +327,13 @@ static void layout_controls(HWND h,
     // clamp dropH to [MIN_DROP_H, avail - minRequiredBelowDrop]
     if (dropH < MIN_DROP_H) dropH = MIN_DROP_H;
     if (dropH > avail - minRequiredBelowDrop) dropH = avail - minRequiredBelowDrop;
-    if (dropH < MIN_DROP_H) dropH = std::max(80, avail - minRequiredBelowDrop); // last resort
+    if (dropH < MIN_DROP_H) dropH = (std::max)(80, avail - minRequiredBelowDrop); // last resort
 
     // Lay out drop zone
     dropRc.left   = MARGIN;
     dropRc.top    = top;
     dropRc.right  = rc.right - MARGIN;
-    dropRc.bottom = top + std::max(0, dropH);
+    dropRc.bottom = top + (std::max)(0, dropH);
 
     // Buttons row
     int by = dropRc.bottom + 24;
@@ -362,7 +361,7 @@ static void layout_controls(HWND h,
         int need = MIN_CONSOLE_H - logH;
         // Shrink drop zone, but not below MIN_DROP_H
         int currentDropH = dropRc.bottom - dropRc.top;
-        int newDropH = std::max(MIN_DROP_H, currentDropH - need);
+        int newDropH = (std::max)(MIN_DROP_H, currentDropH - need);
 
         dropRc.bottom = dropRc.top + newDropH;
 
@@ -377,10 +376,10 @@ static void layout_controls(HWND h,
         MoveWindow(hBtnSettings, rc.right - MARGIN - wSett, by, wSett, btnH, TRUE);
 
         logTop = by + 24;
-        logH   = std::max(MIN_CONSOLE_H, rc.bottom - logTop - MARGIN);
+        logH   = (std::max)(MIN_CONSOLE_H, static_cast<int>(rc.bottom) - logTop - MARGIN);
     }
 
-    MoveWindow(hEditLog, MARGIN, logTop, rc.right - 2 * MARGIN, std::max(0, logH), TRUE);
+    MoveWindow(hEditLog, MARGIN, logTop, rc.right - 2 * MARGIN, (std::max)(0, logH), TRUE);
 }
 
 static void apply_fullscreen(HWND h, bool enable) {
@@ -653,8 +652,8 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmd) {
     int workH = wa.bottom - wa.top;
 
     // Target ~80% of work area, but don't go below a usable minimum
-    int targetW = std::max(1100, (workW * 80) / 100);
-    int targetH = std::max( 720, (workH * 75) / 100);
+    int targetW = (std::max)(1100, (workW * 80) / 100);
+    int targetH = (std::max)( 720, (workH * 75) / 100);
 
     RECT wr{0,0,targetW,targetH};
     AdjustWindowRectEx(&wr, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE, 0);
