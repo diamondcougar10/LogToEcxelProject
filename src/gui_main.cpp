@@ -35,6 +35,18 @@
 
 namespace fs = std::filesystem;
 
+#ifndef PROCESS_DPI_AWARENESS
+typedef enum PROCESS_DPI_AWARENESS {
+    PROCESS_DPI_UNAWARE = 0,
+    PROCESS_SYSTEM_DPI_AWARE = 1,
+    PROCESS_PER_MONITOR_DPI_AWARE = 2
+} PROCESS_DPI_AWARENESS;
+#endif
+
+#ifndef DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+#define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ((DPI_AWARENESS_CONTEXT)-4)
+#endif
+
 // ---------- Theming ----------
 struct Theme {
     bool    dark = false;
@@ -124,8 +136,34 @@ static void apply_backdrop(HWND hwnd) {
 
 // Opt‑in per‑monitor DPI (sharp text)
 static void enable_per_monitor_dpi() {
-    // On older SDKs this may be unavailable; ignore failure
-    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
+    if (user32) {
+        using SetDpiContextFn = BOOL (WINAPI *)(DPI_AWARENESS_CONTEXT);
+        auto set_ctx = reinterpret_cast<SetDpiContextFn>(
+            ::GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+        if (set_ctx && set_ctx(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
+            return;
+        }
+    }
+
+    HMODULE shcore = ::LoadLibraryW(L"shcore.dll");
+    if (shcore) {
+        using SetAwarenessFn = HRESULT (WINAPI *)(PROCESS_DPI_AWARENESS);
+        auto set_awareness = reinterpret_cast<SetAwarenessFn>(
+            ::GetProcAddress(shcore, "SetProcessDpiAwareness"));
+        if (set_awareness && SUCCEEDED(set_awareness(PROCESS_PER_MONITOR_DPI_AWARE))) {
+            ::FreeLibrary(shcore);
+            return;
+        }
+        ::FreeLibrary(shcore);
+    }
+
+    if (user32) {
+        using LegacyFn = BOOL (WINAPI *)(void);
+        auto set_dpiaware = reinterpret_cast<LegacyFn>(
+            ::GetProcAddress(user32, "SetProcessDPIAware"));
+        if (set_dpiaware) set_dpiaware();
+    }
 }
 
 // ---------------------- small helpers ----------------------

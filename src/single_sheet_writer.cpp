@@ -3,12 +3,14 @@
 #include <xlsxwriter.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -47,6 +49,15 @@ static const std::vector<std::string> kHeaders = {
  "Success","Warnings","Errors","LogPath","IngestedAt"
 };
 
+inline std::string normalize_header(const std::string& s) {
+  std::string out;
+  out.reserve(s.size());
+  for (unsigned char ch : s) {
+    if (std::isalnum(ch)) out.push_back(static_cast<char>(std::tolower(ch)));
+  }
+  return out;
+}
+
 inline std::string to_tsv(const std::vector<std::string>& cells) {
   std::ostringstream os;
   for (size_t i=0;i<cells.size();++i) {
@@ -68,6 +79,175 @@ inline std::vector<std::string> split_tsv(const std::string& line) {
   }
   out.push_back(cur);
   return out;
+}
+
+struct ColumnSpec {
+  std::string title;
+  std::string group;
+  double      width;
+  bool        wrap;
+};
+
+struct ColumnLayout {
+  std::string key;
+  ColumnSpec spec;
+};
+
+static const std::vector<ColumnLayout> kMasterLayout = {
+  {"ProjectName",      {"Project Name",         "At a Glance",       28.0, false}},
+  {"Machine",          {"Computer Name",        "At a Glance",       22.0, false}},
+  {"Tool",             {"Tool",                 "At a Glance",       16.0, false}},
+  {"DatasetName",      {"Dataset Name",         "At a Glance",       24.0, false}},
+  {"ExportType",       {"Export Type",          "At a Glance",       20.0, false}},
+  {"ProcessPreset",    {"Process Preset",       "At a Glance",       18.0, false}},
+  {"StartTime",        {"Start Time",           "At a Glance",       20.0, false}},
+  {"EndTime",          {"End Time",             "At a Glance",       20.0, false}},
+  {"Duration(hh:mm:ss)",{"Duration (hh:mm:ss)", "At a Glance",       16.0, false}},
+  {"RunDate",          {"Run Date",             "At a Glance",       14.0, false}},
+  {"TotalSize(GB)",    {"Total Size (GB)",      "At a Glance",       14.0, false}},
+
+  {"BuildID",          {"Build ID",             "Project Setup",     16.0, false}},
+  {"SelAreaSize(km²)", {"Selection Area (km²)", "Project Setup",     18.0, false}},
+  {"Resolution",       {"Resolution",           "Project Setup",     14.0, false}},
+  {"TileScheme",       {"Tile Scheme",          "Project Setup",     14.0, false}},
+
+  {"PhotosUsed",       {"Photos Used",          "Resources",         12.0, false}},
+  {"PhotoFolders",     {"Photo Folders",        "Resources",         28.0, true }},
+  {"PhotoCoverage(km²)",{"Photo Coverage (km²)","Resources",         18.0, false}},
+  {"FusersUsed",       {"Fusers Used",          "Resources",         12.0, false}},
+  {"CPUThreads",       {"CPU Threads",          "Resources",         12.0, false}},
+  {"GPUCount",         {"GPU Count",            "Resources",         12.0, false}},
+
+  {"HostIP",           {"Host IP",              "Environment",       16.0, false}},
+  {"User",             {"User",                 "Environment",       16.0, false}},
+
+  {"OutputFolder",     {"Output Folder",        "Output",            36.0, true }},
+  {"TotalFiles",       {"Total Files",          "Output",            12.0, false}},
+  {"LogPath",          {"Log Path",             "Output",            40.0, true }},
+
+  {"Offset_CoordSys",  {"Offset Coord Sys",     "Offsets & Settings",22.0, false}},
+  {"Offset_HDatum",    {"Offset H Datum",       "Offsets & Settings",18.0, false}},
+  {"Offset_VDatum",    {"Offset V Datum",       "Offsets & Settings",18.0, false}},
+  {"OffsetX",          {"Offset X",             "Offsets & Settings",12.0, false}},
+  {"OffsetY",          {"Offset Y",             "Offsets & Settings",12.0, false}},
+  {"OffsetZ",          {"Offset Z",             "Offsets & Settings",12.0, false}},
+  {"PivotCenterX",     {"Pivot Center X",       "Offsets & Settings",14.0, false}},
+  {"PivotCenterY",     {"Pivot Center Y",       "Offsets & Settings",14.0, false}},
+  {"PivotCenterZ",     {"Pivot Center Z",       "Offsets & Settings",14.0, false}},
+  {"FlipYZ",           {"Flip YZ",              "Offsets & Settings",10.0, false}},
+  {"Trim",             {"Trim",                 "Offsets & Settings",10.0, false}},
+  {"Collision",        {"Collision",            "Offsets & Settings",12.0, false}},
+  {"VisualLOD",        {"Visual LOD",           "Offsets & Settings",12.0, false}},
+
+  {"Success",         {"Success",              "Status",            10.0, false}},
+  {"Warnings",        {"Warnings",             "Status",            26.0, true }},
+  {"Errors",          {"Errors",               "Status",            26.0, true }},
+
+  {"IngestedAt",      {"Ingested At",          "Metadata",          20.0, false}},
+};
+
+void write_sectioned_table(lxw_workbook* wb,
+                           lxw_worksheet* ws,
+                           const std::vector<ColumnSpec>& columns,
+                           const std::vector<std::vector<std::string>>& rows) {
+  if (columns.empty()) return;
+
+  lxw_format* group_fmt = workbook_add_format(wb);
+  format_set_align(group_fmt, LXW_ALIGN_CENTER);
+  format_set_align(group_fmt, LXW_ALIGN_VERTICAL_CENTER);
+  format_set_bold(group_fmt);
+  format_set_bg_color(group_fmt, 0xD9E1F2);
+
+  lxw_format* header_fmt = workbook_add_format(wb);
+  format_set_align(header_fmt, LXW_ALIGN_CENTER);
+  format_set_align(header_fmt, LXW_ALIGN_VERTICAL_CENTER);
+  format_set_bold(header_fmt);
+  format_set_bg_color(header_fmt, 0xEEF2F7);
+
+  lxw_format* wrap_fmt = workbook_add_format(wb);
+  format_set_text_wrap(wrap_fmt);
+  format_set_align(wrap_fmt, LXW_ALIGN_TOP);
+
+  worksheet_set_row(ws, 0, 22.0, nullptr);
+  worksheet_set_row(ws, 1, 20.0, nullptr);
+
+  size_t col = 0;
+  while (col < columns.size()) {
+    const auto& spec = columns[col];
+    if (!spec.group.empty()) {
+      size_t end = col;
+      while (end + 1 < columns.size() && columns[end + 1].group == spec.group) {
+        ++end;
+      }
+      worksheet_merge_range(ws, 0, col, 0, end, spec.group.c_str(), group_fmt);
+      col = end + 1;
+    } else {
+      worksheet_write_string(ws, 0, col, "", group_fmt);
+      ++col;
+    }
+  }
+
+  for (size_t c = 0; c < columns.size(); ++c) {
+    worksheet_write_string(ws, 1, static_cast<lxw_col_t>(c),
+                           columns[c].title.c_str(), header_fmt);
+    worksheet_set_column(ws, static_cast<lxw_col_t>(c), static_cast<lxw_col_t>(c),
+                         columns[c].width, columns[c].wrap ? wrap_fmt : nullptr);
+  }
+
+  for (size_t r = 0; r < rows.size(); ++r) {
+    for (size_t c = 0; c < rows[r].size(); ++c) {
+      worksheet_write_string(ws, static_cast<lxw_row_t>(r + 2),
+                             static_cast<lxw_col_t>(c), rows[r][c].c_str(), nullptr);
+    }
+  }
+
+  lxw_row_t last_row = rows.empty() ? 1 : static_cast<lxw_row_t>(rows.size() + 1);
+  worksheet_add_table(ws, 1, 0, last_row, static_cast<lxw_col_t>(columns.size() - 1), nullptr);
+  worksheet_freeze_panes(ws, 2, 0);
+}
+
+size_t find_column_index(const std::vector<ColumnSpec>& cols, const std::string& title) {
+  for (size_t i = 0; i < cols.size(); ++i) {
+    if (cols[i].title == title) return i;
+  }
+  return cols.size();
+}
+
+void add_success_format(lxw_workbook* wb,
+                        lxw_worksheet* ws,
+                        size_t success_col,
+                        size_t row_count) {
+  if (success_col >= LXW_COL_MAX || row_count == 0) return;
+
+  lxw_format* green = workbook_add_format(wb);
+  format_set_bg_color(green, LXW_COLOR_GREEN);
+  lxw_conditional_format cf1{};
+  cf1.type = LXW_CONDITIONAL_TYPE_CELL;
+  cf1.criteria = LXW_CONDITIONAL_CRITERIA_EQUAL_TO;
+  cf1.value_string = const_cast<char*>("True");
+  cf1.format = green;
+  worksheet_conditional_format_range(
+      ws, 2, static_cast<lxw_col_t>(success_col),
+      static_cast<lxw_row_t>(row_count + 1), static_cast<lxw_col_t>(success_col), &cf1);
+
+  lxw_format* red = workbook_add_format(wb);
+  format_set_bg_color(red, LXW_COLOR_RED);
+  lxw_conditional_format cf2{};
+  cf2.type = LXW_CONDITIONAL_TYPE_CELL;
+  cf2.criteria = LXW_CONDITIONAL_CRITERIA_EQUAL_TO;
+  cf2.value_string = const_cast<char*>("False");
+  cf2.format = red;
+  worksheet_conditional_format_range(
+      ws, 2, static_cast<lxw_col_t>(success_col),
+      static_cast<lxw_row_t>(row_count + 1), static_cast<lxw_col_t>(success_col), &cf2);
+}
+
+size_t index_in_layout(const std::vector<ColumnLayout>& layout, const std::string& key) {
+  const std::string norm = normalize_header(key);
+  for (size_t i = 0; i < layout.size(); ++i) {
+    if (normalize_header(layout[i].key) == norm) return i;
+  }
+  return layout.size();
 }
 
 } // namespace
@@ -159,7 +339,10 @@ static void append_unique_to_tsv(const std::string& tsv_path,
     if (std::getline(in, line)) {
       auto hdr = split_tsv(line);
       int idx = -1;
-      for (size_t i=0;i<hdr.size();++i) if (hdr[i] == "LogPath") { idx = (int)i; break; }
+      const std::string target = normalize_header("LogPath");
+      for (size_t i=0;i<hdr.size();++i) {
+        if (normalize_header(hdr[i]) == target) { idx = static_cast<int>(i); break; }
+      }
       if (idx >= 0) {
         while (std::getline(in, line)) {
           if (line.empty()) continue;
@@ -189,45 +372,79 @@ static void rebuild_xlsx_from_tsv(const std::string& tsv_path,
   if (!in) return;
 
   std::vector<std::string> headers;
-  std::vector<std::vector<std::string>> rows;
+  std::vector<std::vector<std::string>> raw_rows;
 
   std::string line;
   if (std::getline(in, line)) headers = split_tsv(line);
   while (std::getline(in, line)) {
-    if (!line.empty()) rows.push_back(split_tsv(line));
+    if (!line.empty()) raw_rows.push_back(split_tsv(line));
   }
+
+  std::unordered_map<std::string, size_t> header_index;
+  for (size_t i = 0; i < headers.size(); ++i) {
+    header_index.emplace(normalize_header(headers[i]), i);
+  }
+
+  std::vector<std::vector<std::string>> rows;
+  rows.reserve(raw_rows.size());
+  for (const auto& row : raw_rows) {
+    std::vector<std::string> ordered;
+    ordered.reserve(kMasterLayout.size());
+    for (const auto& col : kMasterLayout) {
+      auto it = header_index.find(normalize_header(col.key));
+      if (it != header_index.end() && it->second < row.size())
+        ordered.push_back(row[it->second]);
+      else
+        ordered.emplace_back();
+    }
+    rows.push_back(std::move(ordered));
+  }
+
+  const auto start_idx   = index_in_layout(kMasterLayout, "StartTime");
+  const auto end_idx     = index_in_layout(kMasterLayout, "EndTime");
+  const auto run_idx     = index_in_layout(kMasterLayout, "RunDate");
+  const auto proj_idx    = index_in_layout(kMasterLayout, "ProjectName");
+  const auto machine_idx = index_in_layout(kMasterLayout, "Machine");
+
+  auto time_key = [&](const std::vector<std::string>& row) {
+    if (start_idx < row.size()) {
+      if (auto t = util::parse_time(row[start_idx])) return *t;
+    }
+    if (end_idx < row.size()) {
+      if (auto t = util::parse_time(row[end_idx])) return *t;
+    }
+    if (run_idx < row.size() && !row[run_idx].empty()) {
+      if (auto t = util::parse_time(row[run_idx] + " 00:00:00")) return *t;
+    }
+    return std::chrono::system_clock::time_point::min();
+  };
+
+  auto field = [](const std::vector<std::string>& row, size_t idx) -> const std::string& {
+    static const std::string empty;
+    return idx < row.size() ? row[idx] : empty;
+  };
+
+  std::sort(rows.begin(), rows.end(), [&](const auto& a, const auto& b) {
+    auto ta = time_key(a);
+    auto tb = time_key(b);
+    if (ta != tb) return ta > tb;
+    const std::string& pa = field(a, proj_idx);
+    const std::string& pb = field(b, proj_idx);
+    if (pa != pb) return pa < pb;
+    const std::string& ma = field(a, machine_idx);
+    const std::string& mb = field(b, machine_idx);
+    return ma < mb;
+  });
+
+  std::vector<ColumnSpec> specs;
+  specs.reserve(kMasterLayout.size());
+  for (const auto& col : kMasterLayout) specs.push_back(col.spec);
 
   lxw_workbook* wb = workbook_new(xlsx_path.c_str());
   lxw_worksheet* ws = workbook_add_worksheet(wb, "All_Exports");
 
-  // Write header & rows
-  for (size_t c=0;c<headers.size();++c)
-    worksheet_write_string(ws, 0, (lxw_col_t)c, headers[c].c_str(), nullptr);
-  for (size_t r=0;r<rows.size();++r)
-    for (size_t c=0;c<rows[r].size();++c)
-      worksheet_write_string(ws, (lxw_row_t)(r+1), (lxw_col_t)c, rows[r][c].c_str(), nullptr);
-
-  // Format as table, freeze header, set width
-  if (!headers.empty()) {
-    worksheet_add_table(ws, 0, 0, (lxw_row_t)rows.size(), (lxw_col_t)(headers.size()-1), nullptr);
-    worksheet_freeze_panes(ws, 1, 0);
-    worksheet_set_column(ws, 0, (lxw_col_t)(headers.size()-1), 22, nullptr);
-  }
-
-  // Conditional format for Success column
-  int success_col = -1;
-  for (size_t i=0;i<headers.size();++i) if (headers[i] == "Success") { success_col = (int)i; break; }
-  if (success_col >= 0) {
-    lxw_format* green = workbook_add_format(wb); format_set_bg_color(green, LXW_COLOR_GREEN);
-    lxw_conditional_format cf1{}; cf1.type = LXW_CONDITIONAL_TYPE_CELL; cf1.criteria = LXW_CONDITIONAL_CRITERIA_EQUAL_TO;
-    cf1.value_string = const_cast<char*>("True"); cf1.format = green;
-    worksheet_conditional_format_range(ws, 1, success_col, (lxw_row_t)rows.size(), success_col, &cf1);
-
-    lxw_format* red = workbook_add_format(wb); format_set_bg_color(red, LXW_COLOR_RED);
-    lxw_conditional_format cf2{}; cf2.type = LXW_CONDITIONAL_TYPE_CELL; cf2.criteria = LXW_CONDITIONAL_CRITERIA_EQUAL_TO;
-    cf2.value_string = const_cast<char*>("False"); cf2.format = red;
-    worksheet_conditional_format_range(ws, 1, success_col, (lxw_row_t)rows.size(), success_col, &cf2);
-  }
+  write_sectioned_table(wb, ws, specs, rows);
+  add_success_format(wb, ws, find_column_index(specs, "Success"), rows.size());
 
   workbook_close(wb);
 }
